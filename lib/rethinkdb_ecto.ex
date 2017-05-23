@@ -156,9 +156,11 @@ defmodule RethinkDB.Ecto do
   def prepare(func, query), do: {:nocache, {func, query}}
 
   def execute(repo, meta, {_cache, {func, query}}, params, preprocess, _options) do
+    process = custom_preprocess(meta.prefix, meta.sources, __MODULE__, preprocess)
+
     NormalizedQuery
     |> apply(func, [query, params])
-    |> execute_query(repo, {func, meta.fields}, preprocess)
+    |> execute_query(repo, {func, meta.fields}, process)
   end
 
   def insert(repo, meta, fields, _on_conflict, returning, _options) do
@@ -360,4 +362,37 @@ defmodule RethinkDB.Ecto do
  defp process_result(record, process, ast) do
    Enum.map(ast, &process.(&1, record, nil))
  end
+
+  defp custom_preprocess(prefix, sources, adapter, process) do
+    &custom_preprocess(&1, &2, prefix, &3, sources, adapter, process)
+  end
+
+  defp custom_preprocess({:&, _, [ix, fields, _]}, value, prefix, context, sources, adapter, process) do
+    case elem(sources, ix) do
+      {_source, nil} when is_map(value) ->
+        value
+      {_source, nil} when is_list(value) ->
+        process.({:&, nil, [ix, fields, nil]}, value, context)
+      {source, schema} when is_list(value) ->
+        schema = case Map.has_key?(value, "module_name") do
+          true -> String.to_existing_atom(value["module_name"])
+          false -> schema
+        end
+        Ecto.Schema.__load__(schema, prefix, source, context, {fields, value},
+                             &Ecto.Type.adapter_load(adapter, &1, &2))
+      {source, schema} when is_map(value) ->
+        schema = case Map.has_key?(value, "module_name") do
+          true -> String.to_existing_atom(value["module_name"])
+          false -> schema
+        end
+        Ecto.Schema.__load__(schema, prefix, source, context, value,
+                             &Ecto.Type.adapter_load(adapter, &1, &2))
+      _ ->
+        process.({:&, nil, [ix, fields, nil]}, value, context)
+    end
+ end
+
+  defp custom_preprocess(ast, value, prefix, context, sources, adapter, process) do
+    process.(ast, value, context)
+  end
 end

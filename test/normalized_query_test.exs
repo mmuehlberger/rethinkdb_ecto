@@ -16,6 +16,7 @@ defmodule RethinkDBEctoNormalizedQueryTest do
     @primary_key {:id, :binary_id, autogenerate: false}
 
     schema "users" do
+      field :module_name, :string, default: Atom.to_string(__MODULE__)
       field :name, :string
       field :age, :integer
       field :in_relationship, :boolean
@@ -37,8 +38,28 @@ defmodule RethinkDBEctoNormalizedQueryTest do
     @foreign_key_type :binary_id
 
     schema "posts" do
+      field :module_name, :string, default: Atom.to_string(__MODULE__)
       field :title, :string
       field :body, :string
+      field :score, :float, default: 0.0
+      belongs_to :author, RethinkDBEctoNormalizedQueryTest.User
+      has_many :comments, RethinkDBEctoNormalizedQueryTest.Comment
+      embeds_many :tags, RethinkDBEctoNormalizedQueryTest.Tag
+      timestamps()
+    end
+  end
+
+  defmodule SpecialPost do
+    use Ecto.Schema
+
+    @primary_key {:id, :binary_id, autogenerate: false}
+    @foreign_key_type :binary_id
+
+    schema "posts" do
+      field :module_name, :string, default: Atom.to_string(__MODULE__)
+      field :title, :string
+      field :body, :string
+      field :second_body, :string
       field :score, :float, default: 0.0
       belongs_to :author, RethinkDBEctoNormalizedQueryTest.User
       has_many :comments, RethinkDBEctoNormalizedQueryTest.Comment
@@ -54,6 +75,7 @@ defmodule RethinkDBEctoNormalizedQueryTest do
     @foreign_key_type :binary_id
 
     schema "comments" do
+      field :module_name, :string, default: Atom.to_string(__MODULE__)
       field :body, :string
       belongs_to :author, RethinkDBEctoNormalizedQueryTest.User
       belongs_to :post, RethinkDBEctoNormalizedQueryTest.Post
@@ -65,6 +87,7 @@ defmodule RethinkDBEctoNormalizedQueryTest do
     use Ecto.Schema
 
     embedded_schema do
+      field :module_name, :string, default: Atom.to_string(__MODULE__)
       field :name, :string
     end
   end
@@ -248,6 +271,13 @@ defmodule RethinkDBEctoNormalizedQueryTest do
     assert user == TestRepo.preload(post, :author).author
   end
 
+  test "load schema from module_name field" do
+    [post|_] = insert_factory!(SpecialPost)
+
+    query = from(p in Post, where: p.id == ^post.id)
+    assert "...dolor sit amet" == TestRepo.one(query).second_body
+  end
+
   test "get posts and preload authors" do
     posts = insert_factory!(Post)
     from(p in Post, preload: :author)
@@ -320,6 +350,15 @@ defmodule RethinkDBEctoNormalizedQueryTest do
     for user <- insert_factory!(User) do
       %Post{}
       |> Ecto.Changeset.cast(%{title: "About me, #{user.name}", body: "Lorem ipsum..."}, [:title, :body])
+      |> Ecto.Changeset.put_assoc(:author, user)
+      |> TestRepo.insert!()
+    end
+  end
+
+  defp insert_factory!(SpecialPost) do
+    for user <- insert_factory!(User) do
+      %SpecialPost{}
+      |> Ecto.Changeset.cast(%{title: "About me, #{user.name}", body: "Lorem ipsum...", second_body: "...dolor sit amet"}, [:title, :body, :second_body])
       |> Ecto.Changeset.put_assoc(:author, user)
       |> TestRepo.insert!()
     end
